@@ -1377,19 +1377,27 @@ public class ToolRegistry {
     private record McpRegisteredTool(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {}
 
     public record ToolInvocation(String id, String name, String argumentsJson) {}
-
+    // 工具调用的执行结果单
     public record ToolExecutionResult(String id, String name, String argumentsJson,
                                       String result, long elapsedMillis, boolean timedOut,
-                                      List<com.paicli.llm.LlmClient.ContentPart> imageParts) {
+                                      List<com.paicli.llm.LlmClient.ContentPart> imageParts,
+                                      ToolResultProjection projection) { // 新增局部变量,工具结果映射,包括给大模型看的,给前端界面看的,存入硬盘的原文
+        /*返回给模型看的工具结果*/
+        public String modelResult() {
+            return projection == null ? result : projection.modelText();
+        }
+
         private static ToolExecutionResult completed(ToolInvocation invocation, ToolOutput output, long elapsedMillis) {
+            String raw = output == null ? "" : output.text(); // 输出的
             return new ToolExecutionResult(
                     invocation.id(),
                     invocation.name(),
                     invocation.argumentsJson(),
-                    output == null ? "" : output.text(),
+                    raw,
                     elapsedMillis,
                     false,
-                    output == null ? List.of() : output.imageParts());
+                    output == null ? List.of() : output.imageParts(),
+                    ToolResultProjector.project(invocation.id(), invocation.name(), raw));
         }
 
         private static ToolExecutionResult completed(ToolInvocation invocation, String result, long elapsedMillis) {
@@ -1399,16 +1407,18 @@ public class ToolRegistry {
         private static ToolExecutionResult failed(ToolInvocation invocation, String message) {
             return completed(invocation, "工具执行失败: " + message, 0);
         }
-
+        // ToolInvocation:一次待执行的工具调用请求
         private static ToolExecutionResult timedOut(ToolInvocation invocation, long timeoutSeconds) {
+            String message = "工具执行超时（" + timeoutSeconds + "秒），已取消";
             return new ToolExecutionResult(
                     invocation.id(),
                     invocation.name(),
                     invocation.argumentsJson(),
-                    "工具执行超时（" + timeoutSeconds + "秒），已取消",
+                    message,
                     timeoutSeconds * 1000,
                     true,
-                    List.of()
+                    List.of(),
+                    ToolResultProjector.project(invocation.id(), invocation.name(), message)
             );
         }
 
